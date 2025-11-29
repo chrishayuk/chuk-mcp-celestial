@@ -55,3 +55,6 @@ dmypy.json
 # Project specific
 *.log
 *.tmp
+
+# env
+.env
