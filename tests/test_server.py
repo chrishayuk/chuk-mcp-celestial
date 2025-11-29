@@ -403,3 +403,63 @@ async def test_solar_eclipses_future():
 
     assert result is not None
     assert result.year == 2045
+
+
+# ============================================================================
+# Main Function and CLI Tests
+# ============================================================================
+
+
+def test_main_stdio_mode():
+    """Test main() function with default stdio mode."""
+    from unittest.mock import patch
+    from chuk_mcp_celestial.server import main
+    import sys
+
+    # Mock sys.argv to not have http argument
+    with patch.object(sys, "argv", ["server.py"]):
+        with patch("chuk_mcp_celestial.server.run") as mock_run:
+            main()
+            mock_run.assert_called_once_with(transport="stdio")
+
+
+def test_main_http_mode():
+    """Test main() function with http mode."""
+    from unittest.mock import patch
+    from chuk_mcp_celestial.server import main
+    import sys
+
+    # Test with 'http' argument
+    with patch.object(sys, "argv", ["server.py", "http"]):
+        with patch("chuk_mcp_celestial.server.run") as mock_run:
+            main()
+            mock_run.assert_called_once_with(transport="http")
+
+
+def test_main_http_flag():
+    """Test main() function with --http flag."""
+    from unittest.mock import patch
+    from chuk_mcp_celestial.server import main
+    import sys
+
+    # Test with '--http' argument
+    with patch.object(sys, "argv", ["server.py", "--http"]):
+        with patch("chuk_mcp_celestial.server.run") as mock_run:
+            main()
+            mock_run.assert_called_once_with(transport="http")
+
+
+def test_main_logging_configuration():
+    """Test that logging is configured properly in different modes."""
+    from unittest.mock import patch
+    from chuk_mcp_celestial.server import main
+    import sys
+    import logging
+
+    # Test stdio mode suppresses logging
+    with patch.object(sys, "argv", ["server.py"]):
+        with patch("chuk_mcp_celestial.server.run"):
+            main()
+            # Check that loggers are set to ERROR level
+            assert logging.getLogger("chuk_mcp_server").level == logging.ERROR
+            assert logging.getLogger("httpx").level == logging.ERROR

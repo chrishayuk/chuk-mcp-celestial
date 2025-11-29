@@ -16,6 +16,12 @@
 - Solar eclipse predictions with local circumstances
 - Earth's seasons (equinoxes, solstices, perihelion, aphelion)
 
+⚡ **Flexible Providers:**
+- **Navy API** - Authoritative US Navy data, all features
+- **Skyfield** - 28x faster, offline calculations, research-grade accuracy
+- **Hybrid mode** - Mix providers per-tool (e.g., Skyfield for moon phases, Navy for eclipses)
+- **S3 storage** - Cloud-based ephemeris storage via chuk-virtual-fs
+
 🔒 **Type-Safe & Robust:**
 - Pydantic v2 models for all responses - no dictionary goop!
 - Enums for all constants - no magic strings!
@@ -75,6 +81,7 @@ Run directly without installing:
 
 ### Option 3: Install Locally
 
+**Basic Installation (Navy API only):**
 ```bash
 # With pip
 pip install chuk-mcp-celestial
@@ -84,6 +91,18 @@ uv pip install chuk-mcp-celestial
 
 # Or with pipx (isolated installation)
 pipx install chuk-mcp-celestial
+```
+
+**With Skyfield Support (offline calculations, 28x faster):**
+```bash
+# Install with Skyfield and S3 support
+pip install "chuk-mcp-celestial[skyfield]"
+
+# Or with uv
+uv pip install "chuk-mcp-celestial[skyfield]"
+
+# Download ephemeris files (one-time setup)
+python scripts/download_ephemeris.py --backend local
 ```
 
 Then configure in your MCP client:
@@ -96,6 +115,15 @@ Then configure in your MCP client:
     }
   }
 }
+```
+
+**Optional: Configure hybrid provider mode** (create `celestial.yaml`):
+```yaml
+# Use Skyfield for fast queries, Navy API for everything else
+default_provider: navy_api
+providers:
+  moon_phases: skyfield     # 28x faster
+  earth_seasons: skyfield   # 33x faster
 ```
 
 ## Quick Start
@@ -174,6 +202,8 @@ Additional info:
 
 ### As a Python Library
 
+#### Using MCP Server Tools (Default Provider)
+
 ```python
 import asyncio
 from chuk_mcp_celestial.server import (
@@ -184,7 +214,7 @@ from chuk_mcp_celestial.server import (
 )
 
 async def main():
-    # Get next 4 moon phases
+    # Get next 4 moon phases (uses configured provider)
     phases = await get_moon_phases(date="2024-12-1", num_phases=4)
     for phase in phases.phasedata:
         print(f"{phase.phase}: {phase.year}-{phase.month:02d}-{phase.day:02d} at {phase.time} UT")
@@ -207,6 +237,77 @@ async def main():
     )
     print(f"Eclipse: {eclipse.properties.description}")
     print(f"Magnitude: {eclipse.properties.magnitude}")
+
+asyncio.run(main())
+```
+
+#### Using Providers Directly
+
+```python
+import asyncio
+from chuk_mcp_celestial.providers import NavyAPIProvider, SkyfieldProvider
+
+async def main():
+    # Use Navy API provider
+    navy = NavyAPIProvider()
+    phases_navy = await navy.get_moon_phases("2024-1-1", num_phases=4)
+    print("Navy API moon phases:")
+    for phase in phases_navy.phasedata:
+        print(f"  {phase.phase}: {phase.year}-{phase.month:02d}-{phase.day:02d} {phase.time}")
+
+    # Use Skyfield provider (faster, offline)
+    skyfield = SkyfieldProvider(
+        ephemeris_file="de421.bsp",
+        storage_backend="memory",  # or "s3" or "local"
+        auto_download=True
+    )
+    phases_skyfield = await skyfield.get_moon_phases("2024-1-1", num_phases=4)
+    print("\nSkyfield moon phases:")
+    for phase in phases_skyfield.phasedata:
+        print(f"  {phase.phase}: {phase.year}-{phase.month:02d}-{phase.day:02d} {phase.time}")
+
+    # Earth seasons with Skyfield (fast!)
+    seasons = await skyfield.get_earth_seasons(2024)
+    print("\nEarth seasons 2024:")
+    for event in seasons.data:
+        print(f"  {event.phenom}: {event.year}-{event.month:02d}-{event.day:02d} {event.time}")
+
+asyncio.run(main())
+```
+
+#### Hybrid Approach (Best of Both Worlds)
+
+```python
+import asyncio
+from chuk_mcp_celestial.providers import NavyAPIProvider, SkyfieldProvider
+
+async def main():
+    # Use Skyfield for fast offline calculations
+    skyfield = SkyfieldProvider(storage_backend="local")
+
+    # Use Navy API for features not in Skyfield
+    navy = NavyAPIProvider()
+
+    # Fast moon phases from Skyfield
+    phases = await skyfield.get_moon_phases("2024-12-1", num_phases=12)
+
+    # Detailed rise/set times from Navy API
+    sun_moon = await navy.get_sun_moon_data(
+        date="2024-12-21",
+        latitude=47.60,
+        longitude=-122.33
+    )
+
+    # Solar eclipses only from Navy API (not in Skyfield)
+    eclipse = await navy.get_solar_eclipse_by_date(
+        date="2024-4-8",
+        latitude=40.71,
+        longitude=-74.01
+    )
+
+    print(f"Next moon phase: {phases.phasedata[0].phase}")
+    print(f"Sunrise: {sun_moon.properties.data.sundata[0].time}")
+    print(f"Eclipse: {eclipse.properties.description}")
 
 asyncio.run(main())
 ```
@@ -304,6 +405,146 @@ async with httpx.AsyncClient() as client:
 return PydanticModel(**data)
 ```
 
+### Provider Architecture
+
+This server supports **multiple calculation providers** via a factory pattern, allowing you to choose between different astronomical calculation backends:
+
+#### Available Providers
+
+| Provider | Speed | Accuracy | Offline | Features |
+|----------|-------|----------|---------|----------|
+| **Navy API** | Standard (~700ms) | Authoritative | ❌ | All features |
+| **Skyfield** | Fast (~25ms) | Research-grade | ✅ | Moon phases, seasons |
+
+#### Configuration
+
+Create a `celestial.yaml` file to configure providers:
+
+```yaml
+# Default provider for all tools
+default_provider: navy_api
+
+# Per-tool provider configuration (mix and match!)
+providers:
+  moon_phases: skyfield          # Fast offline calculations
+  sun_moon_data: navy_api         # Rise/set times
+  solar_eclipse_date: navy_api    # Eclipse circumstances
+  solar_eclipse_year: navy_api    # Eclipse catalogs
+  earth_seasons: skyfield         # Fast offline seasons
+
+# Skyfield configuration
+skyfield:
+  # Ephemeris file to use
+  ephemeris: de440s.bsp  # 32 MB, covers 1849-2150
+
+  # Storage backend for ephemeris files
+  storage_backend: s3    # Options: local, s3, memory
+
+  # S3 configuration (when storage_backend=s3)
+  s3:
+    bucket: chuk-celestial-ephemeris
+    region: us-east-1
+    prefix: ephemeris/
+    # profile: default  # Optional AWS profile
+
+  # Local directory (when storage_backend=local)
+  data_dir: ~/.skyfield
+
+  # Auto-download ephemeris if not present
+  auto_download: true
+
+# Navy API configuration
+navy_api:
+  base_url: https://aa.usno.navy.mil/api
+  timeout: 30.0
+  max_retries: 3
+  retry_delay: 1.0
+```
+
+**Config file locations** (checked in order):
+1. Path from `CELESTIAL_CONFIG_PATH` environment variable
+2. `./celestial.yaml` (current directory)
+3. `~/.config/chuk-mcp-celestial/celestial.yaml` (user config)
+
+**Environment variable overrides:**
+- `CELESTIAL_PROVIDER` - Default provider
+- `CELESTIAL_MOON_PHASES_PROVIDER` - Provider for moon phases
+- `SKYFIELD_STORAGE_BACKEND` - Storage backend (local/s3/memory)
+- `SKYFIELD_S3_BUCKET` - S3 bucket name
+- `SKYFIELD_S3_REGION` - S3 region
+- See `celestial.yaml.example` for all options
+
+#### Ephemeris Storage with chuk-virtual-fs
+
+Skyfield requires JPL ephemeris files (~32 MB) for astronomical calculations. This server uses **chuk-virtual-fs** to provide flexible storage options:
+
+**Storage Backends:**
+
+1. **S3 (Recommended for production)** - Cloud storage with AWS S3
+   - Persistent across deployments
+   - Shared across multiple instances
+   - No local disk required
+   - Easy CDN integration
+
+2. **Local** - Traditional filesystem storage
+   - Good for development and offline use
+   - No cloud dependencies
+   - Requires local disk space
+
+3. **Memory** - In-memory storage for testing
+   - Ephemeral storage
+   - Fast but non-persistent
+
+**Download Ephemeris Files:**
+
+```bash
+# Download recommended ephemeris (de440s.bsp) to S3
+python scripts/download_ephemeris.py
+
+# Download all ephemeris files to S3
+python scripts/download_ephemeris.py --all
+
+# Download specific ephemeris to S3
+python scripts/download_ephemeris.py --file de421.bsp
+
+# Force re-download even if file exists
+python scripts/download_ephemeris.py --force
+
+# Download to local filesystem
+python scripts/download_ephemeris.py --backend local
+
+# Download all files to local storage
+python scripts/download_ephemeris.py --all --backend local
+
+# List available ephemeris files
+python scripts/download_ephemeris.py --list
+```
+
+**Features:**
+- ✅ Auto-creates S3 bucket if it doesn't exist
+- ✅ Skips files that already exist in storage
+- ✅ Use `--force` to re-download existing files
+- ✅ Batch download with `--all` flag
+
+**Note:** For S3 backend, create a `.env` file with AWS credentials:
+```bash
+cp .env.example .env
+# Edit .env with your AWS credentials
+```
+
+**Available ephemeris files:**
+- `de440s.bsp` - 32 MB, covers 1849-2150 (⭐ recommended)
+- `de421.bsp` - 17 MB, covers 1900-2050 (smaller, older)
+- `de440.bsp` - 114 MB, covers 1550-2650 (most comprehensive)
+
+**How it works:**
+1. Ephemeris files are stored in your configured backend (S3, local, or memory)
+2. On first use, Skyfield provider downloads files to a local temp cache
+3. Skyfield reads from the cache for fast calculations
+4. Cache persists across provider instances for performance
+
+See [COMPARISON_REPORT.md](COMPARISON_REPORT.md) for detailed accuracy and performance comparison between providers.
+
 ## Deployment
 
 ### Docker
@@ -331,6 +572,9 @@ Deploy to Fly.io:
 # First time setup
 fly launch
 
+# Set AWS secrets for S3 ephemeris storage
+fly secrets set AWS_ACCESS_KEY_ID=your_key AWS_SECRET_ACCESS_KEY=your_secret
+
 # Deploy
 make fly-deploy
 
@@ -344,7 +588,22 @@ make fly-logs
 make fly-open
 ```
 
-Configuration is in `fly.toml`. The app will auto-scale to 0 when not in use.
+**Configuration** (`fly.toml`):
+- Environment variables for provider settings
+- S3 bucket configuration
+- AWS credentials via `fly secrets` (not in file)
+- Auto-scales to 0 when not in use
+
+**Ephemeris Setup for Production:**
+```bash
+# Download ephemeris files to S3 before first deployment
+cp .env.example .env
+# Edit .env with your AWS credentials
+python scripts/download_ephemeris.py --backend s3
+
+# Or download all files
+python scripts/download_ephemeris.py --all --backend s3
+```
 
 ## Development
 
@@ -355,11 +614,18 @@ Configuration is in `fly.toml`. The app will auto-scale to 0 when not in use.
 git clone https://github.com/yourusername/chuk-mcp-celestial
 cd chuk-mcp-celestial
 
-# Install with uv (recommended)
-uv sync --extra dev
+# Install with all dependencies (dev + skyfield)
+uv sync --extra dev --extra skyfield
 
 # Or with pip
-pip install -e ".[dev]"
+pip install -e ".[dev,skyfield]"
+
+# Set up environment variables for S3 (optional)
+cp .env.example .env
+# Edit .env with your AWS credentials
+
+# Download ephemeris files for local development
+python scripts/download_ephemeris.py --backend local
 ```
 
 ### Testing
@@ -392,6 +658,56 @@ make security
 
 # Run all checks
 make check
+```
+
+## Quick Reference
+
+### Common Tasks
+
+**Download ephemeris files:**
+```bash
+# Recommended (auto-select de440s.bsp)
+python scripts/download_ephemeris.py
+
+# All files
+python scripts/download_ephemeris.py --all
+
+# To S3 (production)
+python scripts/download_ephemeris.py --backend s3
+
+# List available files
+python scripts/download_ephemeris.py --list
+```
+
+**Configure providers (celestial.yaml):**
+```yaml
+default_provider: navy_api
+providers:
+  moon_phases: skyfield      # Fast offline
+  earth_seasons: skyfield    # Fast offline
+  sun_moon_data: navy_api    # Full features
+  solar_eclipse_date: navy_api
+```
+
+**Environment variables (.env):**
+```bash
+# AWS credentials
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+AWS_REGION=us-east-1
+
+# Provider selection
+CELESTIAL_PROVIDER=navy_api
+CELESTIAL_MOON_PHASES_PROVIDER=skyfield
+```
+
+**Test provider comparison:**
+```bash
+# Run comparison tests
+uv run pytest tests/test_provider_comparison.py -v
+
+# See detailed report
+cat COMPARISON_REPORT.md
 ```
 
 ## Multi-Server Integration

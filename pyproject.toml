@@ -1,6 +1,6 @@
 [project]
 name = "chuk-mcp-celestial"
-version = "0.1.0"
+version = "0.2"
 description = "MCP server for US Navy astronomical and celestial data - moon phases, eclipses, sun/moon rise/set times"
 authors = [
     {name = "Chris Hay", email = "chris@example.com"}
@@ -11,6 +11,7 @@ dependencies = [
     "chuk-mcp-server>=0.8",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
+    "chuk-virtual-fs>=0.3.1",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,17 @@ dev = [
     "ruff>=0.3.0",
     "mypy>=1.8.0",
     "bandit>=1.7.0",
+    "types-PyYAML>=6.0.0",
+]
+skyfield = [
+    "skyfield>=1.48",
+    "pyyaml>=6.0",
+    "boto3>=1.28.0",
+    "aioboto3>=12.0.0",
+    "python-dotenv>=1.0.0",
+]
+all = [
+    "chuk-mcp-celestial[dev,skyfield]",
 ]
 
 [project.scripts]

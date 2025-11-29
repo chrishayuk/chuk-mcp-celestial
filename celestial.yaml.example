@@ -1,0 +1,49 @@
+# Example configuration file for chuk-mcp-celestial
+# Copy this file to celestial.yaml and customize as needed
+
+# Default provider for all tools
+# Options: navy_api, skyfield
+default_provider: navy_api
+
+# Per-tool provider configuration
+# Allows mixing providers - e.g., use Skyfield for moon phases but Navy API for eclipses
+providers:
+  moon_phases: skyfield          # Use Skyfield for fast offline moon phase calculations
+  sun_moon_data: navy_api         # Use Navy API for rise/set times
+  solar_eclipse_date: navy_api    # Use Navy API for eclipse local circumstances
+  solar_eclipse_year: navy_api    # Use Navy API for eclipse catalogs
+  earth_seasons: navy_api         # Use Navy API for seasons
+
+# Navy API configuration
+navy_api:
+  base_url: https://aa.usno.navy.mil/api
+  timeout: 30.0
+  max_retries: 3
+  retry_delay: 1.0
+
+# Skyfield configuration
+skyfield:
+  # Ephemeris file to use
+  # de440s.bsp: 32 MB, covers 1849-2150 (recommended for modern dates)
+  # de421.bsp: 17 MB, covers 1900-2050 (smaller, older)
+  # de440.bsp: 114 MB, covers 1550-2650 (most comprehensive)
+  ephemeris: de440s.bsp
+
+  # Storage backend for ephemeris files
+  # Options: local, s3, memory
+  storage_backend: s3
+
+  # S3 configuration (used when storage_backend=s3)
+  s3:
+    bucket: chuk-celestial-ephemeris
+    region: us-east-1
+    prefix: ephemeris/
+    # Optional: Use specific AWS profile
+    # profile: default
+
+  # Local directory for Skyfield data files (used when storage_backend=local)
+  data_dir: ~/.skyfield
+
+  # Auto-download ephemeris if not present
+  # Set to false if you want to manually manage ephemeris files
+  auto_download: true

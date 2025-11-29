@@ -1,7 +1,10 @@
 """US Navy Astronomical Data MCP Server.
 
-Provides comprehensive celestial and astronomical data through the US Navy's
-Astronomical Applications Department API:
+Provides comprehensive celestial and astronomical data through configurable providers:
+- Navy API: Official US Navy Astronomical Applications Department API
+- Skyfield: Local calculations using JPL ephemeris data
+
+Features:
 - Moon phases with exact timing
 - Sun and moon rise/set/transit times
 - Solar eclipse predictions and local circumstances
@@ -15,7 +18,6 @@ import logging
 import sys
 from typing import Optional
 
-import httpx
 from chuk_mcp_server import run, tool
 
 from .models import (
@@ -25,6 +27,7 @@ from .models import (
     SolarEclipseByDateResponse,
     SolarEclipseByYearResponse,
 )
+from .providers.factory import get_provider_for_tool
 
 # Configure logging
 # In STDIO mode, we need to be quiet to avoid polluting the JSON-RPC stream
@@ -33,33 +36,6 @@ logging.basicConfig(
     level=logging.WARNING, format="%(levelname)s:%(name)s:%(message)s", stream=sys.stderr
 )
 logger = logging.getLogger(__name__)
-
-# Constants - No Magic Strings!
-BASE_API_URL = "https://aa.usno.navy.mil/api"
-MOON_PHASES_ENDPOINT = f"{BASE_API_URL}/moon/phases/date"
-RSTT_ONEDAY_ENDPOINT = f"{BASE_API_URL}/rstt/oneday"
-SOLAR_ECLIPSE_DATE_ENDPOINT = f"{BASE_API_URL}/eclipses/solar/date"
-SOLAR_ECLIPSE_YEAR_ENDPOINT = f"{BASE_API_URL}/eclipses/solar/year"
-SEASONS_ENDPOINT = f"{BASE_API_URL}/seasons"
-
-# API parameter limits (from Navy API documentation)
-MIN_MOON_PHASES = 1
-MAX_MOON_PHASES = 99
-MIN_YEAR_MOON = 1700
-MAX_YEAR_MOON = 2100
-MIN_YEAR_ECLIPSE = 1800
-MAX_YEAR_ECLIPSE = 2050
-MIN_YEAR_SEASONS = 1700
-MAX_YEAR_SEASONS = 2100
-MIN_LATITUDE = -90.0
-MAX_LATITUDE = 90.0
-MIN_LONGITUDE = -180.0
-MAX_LONGITUDE = 180.0
-MIN_HEIGHT = -200  # meters
-MAX_HEIGHT = 10000  # meters
-
-# HTTP timeout for all requests
-REQUEST_TIMEOUT = 30.0
 
 
 @tool  # type: ignore[arg-type]
@@ -97,24 +73,8 @@ async def get_moon_phases(
         for phase in phases.phasedata:
             print(f"{phase.phase} on {phase.year}-{phase.month}-{phase.day} at {phase.time} UT")
     """
-    if num_phases < MIN_MOON_PHASES or num_phases > MAX_MOON_PHASES:
-        raise ValueError(f"num_phases must be between {MIN_MOON_PHASES} and {MAX_MOON_PHASES}")
-
-    params = {
-        "date": date,
-        "nump": num_phases,
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            MOON_PHASES_ENDPOINT,
-            params=params,
-            timeout=REQUEST_TIMEOUT,  # type: ignore[arg-type]
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    return MoonPhasesResponse(**data)
+    provider = get_provider_for_tool("moon_phases")
+    return await provider.get_moon_phases(date, num_phases)
 
 
 @tool  # type: ignore[arg-type]
@@ -173,26 +133,8 @@ async def get_sun_moon_data(
         sunrise = next(e for e in data.properties.data.sundata if e.phen == "Rise")
         print(f"Sunrise at {sunrise.time}")
     """
-    params = {
-        "date": date,
-        "coords": f"{latitude},{longitude}",
-    }
-
-    if timezone is not None:
-        params["tz"] = str(timezone)
-
-    if dst is not None:
-        params["dst"] = "true" if dst else "false"
-
-    if label is not None:
-        params["label"] = label[:20]  # API limit
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(RSTT_ONEDAY_ENDPOINT, params=params, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-
-    return OneDayResponse(**data)
+    provider = get_provider_for_tool("sun_moon_data")
+    return await provider.get_sun_moon_data(date, latitude, longitude, timezone, dst, label)
 
 
 @tool  # type: ignore[arg-type]
@@ -253,23 +195,8 @@ async def get_solar_eclipse_by_date(
         for event in eclipse.properties.local_data:
             print(f"{event.phenomenon} at {event.time}, sun at {event.altitude}° altitude")
     """
-    if height < -200 or height > 10000:
-        raise ValueError("height must be between -200 and 10000 meters")
-
-    params = {
-        "date": date,
-        "coords": f"{latitude},{longitude}",
-        "height": str(height),
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            SOLAR_ECLIPSE_DATE_ENDPOINT, params=params, timeout=REQUEST_TIMEOUT
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    return SolarEclipseByDateResponse(**data)
+    provider = get_provider_for_tool("solar_eclipse_date")
+    return await provider.get_solar_eclipse_by_date(date, latitude, longitude, height)
 
 
 @tool  # type: ignore[arg-type]
@@ -306,19 +233,8 @@ async def get_solar_eclipses_by_year(
         for eclipse in eclipses.eclipses_in_year:
             print(f"{eclipse.event} on {eclipse.year}-{eclipse.month}-{eclipse.day}")
     """
-    if year < MIN_YEAR_ECLIPSE or year > MAX_YEAR_ECLIPSE:
-        raise ValueError(f"year must be between {MIN_YEAR_ECLIPSE} and {MAX_YEAR_ECLIPSE}")
-
-    params = {"year": str(year)}
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            SOLAR_ECLIPSE_YEAR_ENDPOINT, params=params, timeout=REQUEST_TIMEOUT
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    return SolarEclipseByYearResponse(**data)
+    provider = get_provider_for_tool("solar_eclipse_year")
+    return await provider.get_solar_eclipses_by_year(year)
 
 
 @tool  # type: ignore[arg-type]
@@ -372,23 +288,8 @@ async def get_earth_seasons(
         # Get seasonal events for 2024 in US Central Time with DST
         seasons = await get_earth_seasons(2024, timezone=-6, dst=True)
     """
-    if year < MIN_YEAR_SEASONS or year > MAX_YEAR_SEASONS:
-        raise ValueError(f"year must be between {MIN_YEAR_SEASONS} and {MAX_YEAR_SEASONS}")
-
-    params = {"year": str(year)}
-
-    if timezone is not None:
-        params["tz"] = str(timezone)
-
-    if dst is not None:
-        params["dst"] = "true" if dst else "false"
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(SEASONS_ENDPOINT, params=params, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-
-    return SeasonsResponse(**data)
+    provider = get_provider_for_tool("earth_seasons")
+    return await provider.get_earth_seasons(year, timezone, dst)
 
 
 def main() -> None:
