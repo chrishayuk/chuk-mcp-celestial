@@ -1,6 +1,6 @@
 [project]
 name = "chuk-mcp-celestial"
-version = "0.2"
+version = "0.2.1"
 description = "MCP server for US Navy astronomical and celestial data - moon phases, eclipses, sun/moon rise/set times"
 readme = "README.md"
 license = { text = "Apache-2.0" }
