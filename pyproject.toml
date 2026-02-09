@@ -2,9 +2,6 @@
 name = "chuk-mcp-celestial"
 version = "0.2.1"
 description = "MCP server for astronomical and celestial data - moon phases, eclipses, sun/moon rise/set, planetary positions and events"
-authors = [
-    {name = "Chris Hay", email = "chris@example.com"}
-]
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
