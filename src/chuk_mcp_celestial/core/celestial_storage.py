@@ -115,6 +115,41 @@ class CelestialStorage:
             logger.warning("Failed to store planet events for %s: %s", key, exc)
             return None
 
+    async def save_sky(
+        self, date: str, time: str, lat: float, lon: float, data: dict[str, Any]
+    ) -> str | None:
+        """Save sky summary computation result.
+
+        Returns artifact_id on success, None if no store configured or on error.
+        """
+        key = f"sky|{date}|{time}|{lat}|{lon}"
+        self._cache[key] = data
+
+        if not self._store:
+            return None
+
+        try:
+            json_bytes = json.dumps(data, indent=2).encode("utf-8")
+            artifact_id = await self._store.store(
+                data=json_bytes,
+                mime="application/json",
+                summary=f"Sky summary: {date} {time}",
+                filename=f"celestial/sky/{date}_{time.replace(':', '')}.json",
+                meta={
+                    "type": "sky_summary",
+                    "date": date,
+                    "time": time,
+                    "lat": lat,
+                    "lon": lon,
+                },
+            )
+            self._artifact_index[key] = artifact_id
+            logger.info("Stored sky summary for %s (artifact_id=%s)", key, artifact_id)
+            return artifact_id
+        except Exception as exc:
+            logger.warning("Failed to store sky summary for %s: %s", key, exc)
+            return None
+
     # ── Load ──────────────────────────────────────────────────────────────
 
     async def load(self, key: str) -> dict[str, Any] | None:

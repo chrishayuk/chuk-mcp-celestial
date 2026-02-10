@@ -8,7 +8,7 @@ chuk-mcp-celestial is an MCP (Model Context Protocol) server that provides
 comprehensive astronomical and celestial data from the US Navy Astronomical
 Applications Department API and local Skyfield calculations.
 
-- **7 tools** for moon phases, sun/moon data, solar eclipses, Earth seasons, and planetary positions/events
+- **8 tools** for moon phases, sun/moon data, solar eclipses, Earth seasons, planetary positions/events, and all-sky summaries
 - **Multi-provider** — Navy API (authoritative) and Skyfield (fast, offline)
 - **Hybrid mode** — per-tool provider selection for optimal speed/coverage
 - **Async-first** — all tool entry points are async with httpx
@@ -358,6 +358,47 @@ Get rise, set, and transit times for a planet on a given day at a location.
 
 ---
 
+### `get_sky`
+
+Get a complete sky summary — all planets, moon phase, and darkness — in one call.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `date` | `str` | *required* | Date `YYYY-MM-DD` |
+| `time` | `str` | *required* | Time `HH:MM` (24-hour). UTC unless timezone specified. |
+| `latitude` | `float` | *required* | Observer latitude (-90 to 90) |
+| `longitude` | `float` | *required* | Observer longitude (-180 to 180) |
+| `timezone` | `float?` | `None` | Timezone offset from UTC in hours |
+
+**Response:** `SkyResponse` (GeoJSON Feature)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `apiversion` | `str` | API version |
+| `type` | `str` | `Feature` (GeoJSON) |
+| `geometry` | `GeoJSONPoint` | Observer location |
+| `properties.data.date` | `str` | Query date |
+| `properties.data.time` | `str` | Query time |
+| `properties.data.is_dark` | `bool` | True if sun is below -6° (civil twilight) |
+| `properties.data.visible_planets` | `SkyPlanetSummary[]` | Planets above horizon, not lost in sunlight, sorted brightest first |
+| `properties.data.all_planets` | `SkyPlanetSummary[]` | All 8 planets regardless of visibility |
+| `properties.data.moon` | `SkyMoonSummary` | Phase, illumination, next phase date |
+| `properties.data.summary` | `str` | One-line human-readable summary |
+| `artifact_ref` | `str?` | Artifact reference for stored result |
+
+**SkyPlanetSummary fields:** planet, altitude, azimuth, magnitude, constellation, elongation, visibility, direction (compass: N/NE/E/SE/S/SW/W/NW)
+
+**Notes:**
+- Recommended for "what's in the sky tonight?" — one call instead of 8 `get_planet_position` calls
+- `visible_planets` filtered to `altitude > 0` and `visibility == "visible"`
+- `direction` gives human-readable compass bearing
+- `is_dark=False` means daylight/twilight — planets may not be observable
+- Skyfield only — composes `get_planet_position()` for all planets + `get_moon_phases()`
+
+---
+
 ## Error Handling
 
 All tools raise exceptions on failure with descriptive messages:
@@ -387,6 +428,7 @@ All tools raise exceptions on failure with descriptive messages:
 | `CELESTIAL_EARTH_SEASONS_PROVIDER` | No | default | Provider for Earth seasons |
 | `CELESTIAL_PLANET_POSITION_PROVIDER` | No | `skyfield` | Provider for planet position |
 | `CELESTIAL_PLANET_EVENTS_PROVIDER` | No | `skyfield` | Provider for planet events |
+| `CELESTIAL_SKY_PROVIDER` | No | `skyfield` | Provider for sky summary |
 | `CELESTIAL_CONFIG_PATH` | No | — | Path to celestial.yaml |
 | `CHUK_ARTIFACTS_PROVIDER` | No | `memory` | Artifact storage: `memory`, `s3`, `filesystem` |
 | `BUCKET_NAME` | No | — | S3 bucket for artifact storage |
@@ -418,6 +460,7 @@ providers:
   earth_seasons: skyfield
   planet_position: skyfield
   planet_events: skyfield
+  sky: skyfield
 
 skyfield:
   ephemeris: de440s.bsp

@@ -441,3 +441,85 @@ class PlanetEventsResponse(BaseModel):
     artifact_ref: Optional[str] = Field(
         None, description="Artifact reference for stored computation result"
     )
+
+
+# ============================================================================
+# Sky Summary Models
+# ============================================================================
+
+
+class SkyPlanetSummary(BaseModel):
+    """Summary of a single planet's position for sky overview."""
+
+    planet: Planet = Field(..., description="Planet name")
+    altitude: float = Field(
+        ..., description="Altitude in degrees above horizon (-90 to 90)"
+    )
+    azimuth: float = Field(
+        ..., description="Azimuth in degrees clockwise from north (0-360)"
+    )
+    magnitude: float = Field(..., description="Apparent visual magnitude")
+    constellation: str = Field(..., description="IAU constellation abbreviation")
+    elongation: float = Field(
+        ..., description="Angular distance from the sun in degrees"
+    )
+    visibility: VisibilityStatus = Field(..., description="Visibility status")
+    direction: str = Field(
+        ..., description="Compass direction: N, NE, E, SE, S, SW, W, NW"
+    )
+
+
+class SkyMoonSummary(BaseModel):
+    """Moon summary for sky overview."""
+
+    phase: str = Field(..., description="Current moon phase (e.g., 'Waxing Crescent')")
+    illumination: str = Field(
+        ..., description="Illumination percentage (e.g., '45%')"
+    )
+    next_phase: Optional[str] = Field(
+        None, description="Next phase description (e.g., 'Full Moon on 2026-02-17')"
+    )
+    next_phase_date: Optional[str] = Field(
+        None, description="Date of next phase in YYYY-MM-DD format"
+    )
+
+
+class SkyData(BaseModel):
+    """Complete sky summary data for a date/time/location."""
+
+    date: str = Field(..., description="Date in YYYY-MM-DD format")
+    time: str = Field(..., description="Time in HH:MM format")
+    is_dark: bool = Field(
+        ..., description="True if sun is below -6 degrees (civil twilight)"
+    )
+    visible_planets: list[SkyPlanetSummary] = Field(
+        ...,
+        description="Planets above horizon and not lost in sunlight, "
+        "sorted brightest first",
+    )
+    all_planets: list[SkyPlanetSummary] = Field(
+        ..., description="All 8 planets regardless of visibility"
+    )
+    moon: SkyMoonSummary = Field(..., description="Moon phase and illumination")
+    summary: str = Field(
+        ...,
+        description="One-line human-readable summary of what's visible",
+    )
+
+
+class SkyProperties(BaseModel):
+    """Properties for Sky GeoJSON Feature."""
+
+    data: SkyData = Field(..., description="Sky summary data")
+
+
+class SkyResponse(BaseModel):
+    """Complete sky summary for a date/time/location (GeoJSON Feature)."""
+
+    apiversion: str = Field(..., description="API version string")
+    type: str = Field(default="Feature", description="GeoJSON type (always 'Feature')")
+    geometry: GeoJSONPoint = Field(..., description="Observer location geometry")
+    properties: SkyProperties = Field(..., description="Sky summary data")
+    artifact_ref: Optional[str] = Field(
+        None, description="Artifact reference for stored result"
+    )

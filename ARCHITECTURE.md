@@ -15,7 +15,7 @@
 ```
 src/chuk_mcp_celestial/
 ├── __init__.py              # Package init with version
-├── server.py                # CLI entry point, @tool registration, artifact store init
+├── server.py                # CLI entry point, @tool registration, get_sky composition, artifact store init
 ├── models.py                # Pydantic v2 response models and enums
 ├── config.py                # Configuration loading (YAML + env vars + defaults)
 ├── constants.py             # Planet name mappings, visibility thresholds, storage enums
@@ -66,7 +66,8 @@ External API / Local Engine
 | Solar Eclipses | get_solar_eclipse_by_date, get_solar_eclipses_by_year | 2 |
 | Earth Seasons | get_earth_seasons | 1 |
 | Planets | get_planet_position, get_planet_events | 2 |
-| | **Total** | **7** |
+| Sky Summary | get_sky | 1 |
+| | **Total** | **8** |
 
 ## Provider Architecture
 
@@ -79,6 +80,9 @@ Each provider implements the `CelestialProvider` abstract interface:
 - `get_earth_seasons()` — Equinoxes, solstices, perihelion, aphelion
 - `get_planet_position()` — Planet alt/az, RA/Dec, distance, magnitude, visibility
 - `get_planet_events()` — Planet rise/set/transit times
+
+The `get_sky` tool in `server.py` composes `get_planet_position()` for all 8 planets
+and `get_moon_phases()` into a single all-sky summary response.
 
 The factory dispatches to the correct provider based on per-tool configuration
 or the global default. Provider instances are cached for reuse. Planet tools
@@ -142,7 +146,7 @@ configured (graceful degradation).
 
 ## Testing
 
-Tests are in `tests/` with 9 test modules:
+Tests are in `tests/` with 10 test modules:
 
 - `test_server.py` — Integration tests for all 7 tools, CLI modes
 - `test_base.py` — Abstract base provider validation
@@ -151,6 +155,7 @@ Tests are in `tests/` with 9 test modules:
 - `test_planet_position.py` — Planet position: all planets, visibility, GeoJSON, timezone
 - `test_planet_events.py` — Planet events: rise/set/transit, timezone, DST, sort order
 - `test_celestial_storage.py` — Artifact storage: save/load, metadata, error handling
+- `test_sky.py` — Sky summary: all-sky composition, direction helper, visibility filtering
 - `test_provider_comparison.py` — Navy API vs Skyfield accuracy comparison
 - `test_skyfield_vfs.py` — Virtual filesystem integration tests
 

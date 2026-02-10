@@ -5,8 +5,9 @@
 Astronomical & Celestial Data MCP Server
 
 An MCP (Model Context Protocol) server providing moon phases, sun/moon rise/set
-times, solar eclipse predictions, Earth's seasons, and planetary positions/events
-from the US Navy Astronomical Applications Department API and local Skyfield calculations.
+times, solar eclipse predictions, Earth's seasons, planetary positions/events,
+and all-sky summaries from the US Navy Astronomical Applications Department API
+and local Skyfield calculations.
 
 > This is a demonstration project provided as-is for learning and testing purposes.
 
@@ -225,6 +226,12 @@ Both providers are included by default — no extras needed.
 
 Supported: Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto
 
+### Sky Summary (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `get_sky` | All-sky summary: every planet's position, moon phase, darkness check — one call |
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
@@ -234,6 +241,7 @@ Supported: Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto
 | `CELESTIAL_EARTH_SEASONS_PROVIDER` | No | default | Provider for Earth seasons |
 | `CELESTIAL_PLANET_POSITION_PROVIDER` | No | `skyfield` | Provider for planet position |
 | `CELESTIAL_PLANET_EVENTS_PROVIDER` | No | `skyfield` | Provider for planet events |
+| `CELESTIAL_SKY_PROVIDER` | No | `skyfield` | Provider for sky summary |
 | `CELESTIAL_CONFIG_PATH` | No | — | Path to celestial.yaml |
 | `SKYFIELD_STORAGE_BACKEND` | No | `s3` | Ephemeris storage: `local`, `s3`, `memory` |
 | `SKYFIELD_S3_BUCKET` | No | `chuk-celestial-ephemeris` | S3 bucket for ephemeris |
@@ -253,6 +261,7 @@ providers:
   solar_eclipse_year: navy_api
   planet_position: skyfield     # Only provider with planet support
   planet_events: skyfield
+  sky: skyfield                # All-sky summary
 ```
 
 ## Development

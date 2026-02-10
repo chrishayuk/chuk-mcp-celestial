@@ -27,13 +27,21 @@ from chuk_mcp_server import run, tool
 from .constants import EnvVar, SessionProvider, StorageProvider
 from .core.celestial_storage import CelestialStorage
 from .models import (
+    GeoJSONPoint,
     MoonPhasesResponse,
     OneDayResponse,
+    Planet,
     PlanetEventsResponse,
     PlanetPositionResponse,
     SeasonsResponse,
+    SkyData,
+    SkyMoonSummary,
+    SkyPlanetSummary,
+    SkyProperties,
+    SkyResponse,
     SolarEclipseByDateResponse,
     SolarEclipseByYearResponse,
+    VisibilityStatus,
 )
 from .providers.factory import get_provider_for_tool
 
@@ -476,6 +484,201 @@ async def get_planet_events(
         result.artifact_ref = artifact_ref
 
     return result
+
+
+# ============================================================================
+# Sky Summary Tool
+# ============================================================================
+
+
+def _azimuth_to_direction(az: float) -> str:
+    """Convert azimuth degrees to compass direction."""
+    directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    idx = round(az / 45) % 8
+    return directions[idx]
+
+
+@tool  # type: ignore[arg-type]
+async def get_sky(
+    date: str,
+    time: str,
+    latitude: float,
+    longitude: float,
+    timezone: Optional[float] = None,
+) -> SkyResponse:
+    """Get a complete sky summary — all planets, moon phase, and darkness — in one call.
+
+    Returns which planets are visible, their positions and brightness, the current
+    moon phase, and whether the sky is dark enough for observation. This is the
+    recommended tool for "what's in the sky tonight?" questions.
+
+    Args:
+        date: Date in YYYY-MM-DD format (e.g., "2026-2-10")
+        time: Time in HH:MM format, 24-hour (e.g., "21:00"). UTC unless timezone specified.
+        latitude: Observer's latitude in decimal degrees (-90 to 90)
+        longitude: Observer's longitude in decimal degrees (-180 to 180)
+        timezone: Timezone offset from UTC in hours (e.g., 0 for GMT, -5 for EST, 1 for CET).
+            When provided, the time parameter is interpreted as local time.
+
+    Returns:
+        SkyResponse: GeoJSON Feature containing:
+            - properties.data.visible_planets: Planets above horizon and not lost in sunlight,
+              sorted brightest first. Each has altitude, azimuth, direction, magnitude,
+              constellation, and visibility status.
+            - properties.data.all_planets: All 8 planets regardless of visibility
+            - properties.data.moon: Current phase and illumination percentage
+            - properties.data.is_dark: True if sun is below -6 degrees (civil twilight)
+            - properties.data.summary: One-line text summary for quick display
+
+    Tips for LLMs:
+        - Use this instead of calling get_planet_position 8 times
+        - The summary field gives a quick human-readable answer
+        - visible_planets are sorted brightest first (lowest magnitude)
+        - direction field gives compass bearing: "S" = look south, "NE" = northeast
+        - is_dark=False means it's daytime or twilight — planets may not be visible even if above horizon
+        - Combine with weather forecast to check if skies are clear enough to observe
+
+    Example:
+        sky = await get_sky(
+            date="2026-2-10", time="21:00",
+            latitude=51.99, longitude=0.84, timezone=0
+        )
+        for p in sky.properties.data.visible_planets:
+            print(f"{p.planet}: {p.direction}, magnitude {p.magnitude}, in {p.constellation}")
+        print(sky.properties.data.summary)
+    """
+    # Get planet provider (skyfield)
+    try:
+        planet_provider = get_provider_for_tool("sky")
+    except ValueError:
+        raise RuntimeError(
+            "Sky summary requires the skyfield extra. "
+            "Install with: pip install chuk-mcp-celestial[skyfield]"
+        )
+
+    # Compute all planet positions
+    all_planets: list[SkyPlanetSummary] = []
+    for planet_enum in Planet:
+        try:
+            result = await planet_provider.get_planet_position(
+                planet_enum.value, date, time, latitude, longitude, timezone
+            )
+            data = result.properties.data
+            all_planets.append(
+                SkyPlanetSummary(
+                    planet=data.planet,
+                    altitude=data.altitude,
+                    azimuth=data.azimuth,
+                    magnitude=data.magnitude,
+                    constellation=data.constellation,
+                    elongation=data.elongation,
+                    visibility=data.visibility,
+                    direction=_azimuth_to_direction(data.azimuth),
+                )
+            )
+        except Exception as exc:
+            logger.warning("Failed to compute position for %s: %s", planet_enum.value, exc)
+
+    # Filter visible planets (above horizon and not lost in sunlight), sort brightest first
+    visible_planets = sorted(
+        [p for p in all_planets if p.visibility == VisibilityStatus.VISIBLE],
+        key=lambda p: p.magnitude,
+    )
+
+    # Get moon phase
+    try:
+        moon_provider = get_provider_for_tool("moon_phases")
+        moon_result = await moon_provider.get_moon_phases(date, 4)
+        first_phase = moon_result.phasedata[0] if moon_result.phasedata else None
+        moon = SkyMoonSummary(
+            phase="Unknown",
+            illumination="Unknown",
+            next_phase=(
+                f"{first_phase.phase.value} on {first_phase.year}-{first_phase.month:02d}-{first_phase.day:02d}"
+                if first_phase
+                else None
+            ),
+            next_phase_date=(
+                f"{first_phase.year}-{first_phase.month:02d}-{first_phase.day:02d}"
+                if first_phase
+                else None
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Failed to get moon phases: %s", exc)
+        moon = SkyMoonSummary(phase="Unknown", illumination="Unknown")
+
+    # Determine if sky is dark (sun below -6 degrees = civil twilight)
+    # We can check this by computing the sun's altitude using the skyfield provider
+    is_dark = True
+    try:
+        eph = planet_provider.eph  # type: ignore[attr-defined]
+        ts = planet_provider.ts  # type: ignore[attr-defined]
+        from skyfield.api import wgs84
+
+        year, month, day = map(int, date.split("-"))
+        hour, minute = map(int, time.split(":"))
+        utc_hour, utc_minute = hour, minute
+        if timezone is not None:
+            from datetime import datetime as dt
+            from datetime import timedelta as td
+
+            local = dt(year, month, day, hour, minute)
+            utc = local - td(hours=timezone)
+            year, month, day = utc.year, utc.month, utc.day
+            utc_hour, utc_minute = utc.hour, utc.minute
+        t = ts.utc(year, month, day, utc_hour, utc_minute)
+        earth = eph["earth"]
+        observer = earth + wgs84.latlon(latitude, longitude)
+        sun = eph["sun"]
+        sun_apparent = observer.at(t).observe(sun).apparent()
+        sun_alt, _, _ = sun_apparent.altaz()
+        is_dark = sun_alt.degrees < -6.0
+    except Exception as exc:
+        logger.warning("Failed to compute sun altitude: %s", exc)
+
+    # Build summary string
+    if visible_planets:
+        planet_parts = [
+            f"{p.planet.value} ({p.direction}, mag {p.magnitude})"
+            for p in visible_planets
+        ]
+        summary = f"{len(visible_planets)} planet(s) visible: {', '.join(planet_parts)}."
+    else:
+        summary = "No planets currently visible."
+    summary += f" Moon: {moon.phase} ({moon.illumination})."
+    if not is_dark:
+        summary += " Note: sky is not fully dark."
+
+    sky_data = SkyData(
+        date=date,
+        time=time,
+        is_dark=is_dark,
+        visible_planets=visible_planets,
+        all_planets=all_planets,
+        moon=moon,
+        summary=summary,
+    )
+
+    response = SkyResponse(
+        apiversion="Skyfield 1.x",
+        type="Feature",
+        geometry=GeoJSONPoint(type="Point", coordinates=[longitude, latitude]),
+        properties=SkyProperties(data=sky_data),
+    )
+
+    # Store result
+    artifact_ref = await _storage.save_sky(
+        date=date,
+        time=time,
+        lat=latitude,
+        lon=longitude,
+        data=sky_data.model_dump(),
+    )
+    if artifact_ref:
+        response.artifact_ref = artifact_ref
+
+    return response
 
 
 # ============================================================================

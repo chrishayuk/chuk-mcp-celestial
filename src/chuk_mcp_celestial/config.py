@@ -131,6 +131,10 @@ class ProviderConfig:
         "CELESTIAL_PLANET_EVENTS_PROVIDER",
         _providers_yaml.get("planet_events", "skyfield"),
     )
+    SKY_PROVIDER = os.getenv(
+        "CELESTIAL_SKY_PROVIDER",
+        _providers_yaml.get("sky", "skyfield"),
+    )
 
 
 class SkyfieldConfig:
@@ -155,7 +159,7 @@ class SkyfieldConfig:
     # Storage backend: local, s3, or memory
     STORAGE_BACKEND = os.getenv(
         "SKYFIELD_STORAGE_BACKEND",
-        _skyfield_yaml.get("storage_backend", "s3"),
+        _skyfield_yaml.get("storage_backend", "local"),
     )
 
     # Directory to store Skyfield data files (used for local backend)

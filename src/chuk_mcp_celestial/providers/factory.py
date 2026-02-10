@@ -94,6 +94,7 @@ def get_provider_for_tool(tool_name: str) -> CelestialProvider:
         "earth_seasons": ProviderConfig.EARTH_SEASONS_PROVIDER,
         "planet_position": ProviderConfig.PLANET_POSITION_PROVIDER,
         "planet_events": ProviderConfig.PLANET_EVENTS_PROVIDER,
+        "sky": ProviderConfig.SKY_PROVIDER,
     }
 
     provider_type = tool_config_map.get(tool_name)

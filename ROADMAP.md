@@ -52,23 +52,24 @@ for computation persistence.
 
 ## v0.3.1 — Skyfield as Core Dependency (Complete)
 
-Skyfield moved from optional to core dependency so all 7 tools work out of the box.
+Skyfield moved from optional to core dependency so all 8 tools work out of the box.
 
 - [x] Moved `skyfield` and `numpy` from `[project.optional-dependencies]` to `dependencies`
 - [x] Renamed optional `[skyfield]` extra to `[s3]` (boto3, aioboto3, python-dotenv for S3 storage)
 - [x] Graceful error messages in planet tools when skyfield is somehow unavailable
+- [x] Changed ephemeris storage default from `s3` to `local` (no AWS creds required)
+- [x] `get_sky` — single-call all-sky summary: all planet positions, visibility, moon phase, darkness check
+- [x] Tests for sky summary tool (21 tests)
 - [x] Updated README, SPEC, ARCHITECTURE, ROADMAP documentation
 
-## v0.4.0 — Tonight's Sky & Conjunctions
+## v0.4.0 — Conjunctions & Visibility Calendar
 
-High-level LLM-friendly tools — what an LLM naturally wants to call instead
-of orchestrating multiple lower-level requests.
+High-level LLM-friendly tools for planning observations.
 
-- [ ] `get_sky_tonight` — single-call summary: visible planets with positions, moon phase/position, twilight times, any notable events above the horizon at a given time and location
 - [ ] `get_conjunctions` — upcoming close approaches between solar system bodies (Venus-Moon, Jupiter-Saturn, etc.) within a date range
 - [ ] `get_planet_visibility_calendar` — which planets are visible evening/morning over a date range for a location
 - [ ] Conjunction detection algorithm (angular separation thresholds)
-- [ ] Tests for summary and conjunction tools
+- [ ] Tests for conjunction and calendar tools
 
 ## v0.5.0 — Lunar Eclipses & Extended Skyfield
 
